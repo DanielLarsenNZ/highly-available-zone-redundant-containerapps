@@ -19,6 +19,9 @@ param containerRegistryName string = 'acr${applicationName}'
 @description('The name of the virtual network that will be deployed')
 param virtualNetworkName string = 'vnet-${applicationName}'
 
+@description('The name of the key vault that will be deployed')
+param keyVaultName string = 'kv-${applicationName}'
+
 @description('The docker container image to deploy')
 param containerImage string = 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
 
@@ -64,6 +67,22 @@ param maxReplica int = 30
 
 var containerAppSubnetName = 'infrastructure-subnet'
 var containerAppName = 'frontend'
+var shared_config = [
+  {
+    name: 'APPINSIGHTS_CONNECTION_STRING'
+    value: appInsights.properties.ConnectionString
+  }
+  {
+    name: 'APPINSIGHTS_INSTRUMENTATIONKEY'
+    value: appInsights.properties.InstrumentationKey
+  }
+]
+
+var acrPasswordSecretName = 'AcrPasswordSecret'
+
+var roleDefinitionIds = {
+  keyvault: '4633458b-17de-408a-b874-0445c86b69e6'                  // Key Vault Secrets User
+}
 
 resource virtualNetwork 'Microsoft.Network/virtualNetworks@2022-07-01' = {
   name: virtualNetworkName
@@ -80,6 +99,9 @@ resource virtualNetwork 'Microsoft.Network/virtualNetworks@2022-07-01' = {
         name: containerAppSubnetName
         properties: {
           addressPrefix: '10.0.0.0/23'
+          delegations: []
+          privateEndpointNetworkPolicies: 'Disabled'
+          privateLinkServiceNetworkPolicies: 'Enabled'
         }
       }
     ]
@@ -108,6 +130,32 @@ resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
   }
 }
 
+resource keyVault 'Microsoft.KeyVault/vaults@2022-07-01' = {
+  name: keyVaultName
+  location: location
+  tags: tags
+  properties: {
+    sku: {
+      family: 'A'
+      name: 'standard'
+    }
+    tenantId: tenant().tenantId
+    enabledForTemplateDeployment: true
+    accessPolicies: [
+      {
+        objectId: frontEndContainerApp.identity.principalId
+        tenantId: frontEndContainerApp.identity.tenantId
+        permissions: {
+          secrets: [
+            'get'
+            'list'
+          ]
+        }
+      }
+    ]
+  }
+}
+
 resource containerRegistry 'Microsoft.ContainerRegistry/registries@2023-01-01-preview' = {
   name: containerRegistryName
   location: location
@@ -121,6 +169,14 @@ resource containerRegistry 'Microsoft.ContainerRegistry/registries@2023-01-01-pr
   }
   identity: {
     type: 'SystemAssigned'
+  }
+}
+
+resource containerRegistryPasswordSecret 'Microsoft.KeyVault/vaults/secrets@2022-07-01' = {
+  name: acrPasswordSecretName
+  parent: keyVault
+  properties: {
+    value: containerRegistry.listCredentials().passwords[0].value
   }
 }
 
@@ -146,61 +202,78 @@ resource env 'Microsoft.App/managedEnvironments@2022-10-01' = {
   }
 }
 
-resource containerApp 'Microsoft.App/containerApps@2022-10-01' = {
+resource frontEndContainerApp 'Microsoft.App/containerApps@2022-03-01' = {
   name: containerAppName
   location: location
   tags: tags
   properties: {
-    managedEnvironmentId: env.id
-    configuration: {
-      ingress: {
-        external: true
-        targetPort: 80
-        allowInsecure: false
-      }
-      activeRevisionsMode: 'Multiple'
-      secrets: [
+   managedEnvironmentId: env.id
+   configuration: {
+    activeRevisionsMode: 'Multiple'
+    ingress: {
+      external: true
+      transport: 'auto'
+      targetPort: 80
+      allowInsecure: false
+      traffic: [
         {
-          name: 'containerregistry-secret'
-          value: containerRegistry.listCredentials().passwords[0].value
-        }
-      ]
-      registries: [
-        {
-          server: containerRegistry.properties.loginServer
-          passwordSecretRef: 'containerregistry-secret'
-          username: containerRegistry.listCredentials().username
+          latestRevision: true
+          weight: 100
         }
       ]
     }
-    template: {
-      containers: [
+    secrets: [
+      {
+        name: 'container-registry-password'
+        value: containerRegistry.listCredentials().passwords[0].value
+      }
+    ]
+    registries: [
+      {
+        server: containerRegistry.properties.loginServer
+        username: containerRegistry.listCredentials().username
+        passwordSecretRef: 'container-registry-password'
+      }
+    ]
+   }
+   template: {
+    containers: [
+      {
+        name: containerAppName
+        image: containerImage
+        env: shared_config
+        resources: {
+          cpu: json(cpuCore)
+          memory: '${memorySize}Gi'
+        }
+      }
+    ]
+    scale: {
+      minReplicas: minReplica
+      maxReplicas: maxReplica
+      rules: [
         {
-          name: containerAppName
-          image: containerImage
-          resources: {
-            cpu: json(cpuCore)
-            memory: '${memorySize}Gi'
+          name: 'http-rule'
+          http: {
+            metadata: {
+              concurrentRequests: '100'
+            }
           }
-          env: [
-            {
-              name: 'APPINSIGHTS_CONNECTION_STRING'
-              value: appInsights.properties.ConnectionString
-            }
-            {
-              name: 'APPINSIGHTS_INSTRUMENTATIONKEY'
-              value: appInsights.properties.InstrumentationKey
-            }
-          ]
         }
       ]
-      scale: {
-        minReplicas: minReplica
-        maxReplicas: maxReplica
-      }
     }
+   } 
   }
   identity: {
     type: 'SystemAssigned'
+  }
+}
+
+resource keyVaultReaderRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(keyVault.id, frontEndContainerApp.id, roleDefinitionIds.keyvault)
+  properties: {
+    principalId: frontEndContainerApp.identity.principalId
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roleDefinitionIds.keyvault)
+    principalType: 'ServicePrincipal'
   }
 }
