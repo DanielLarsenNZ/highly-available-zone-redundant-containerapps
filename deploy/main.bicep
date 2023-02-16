@@ -84,8 +84,12 @@ param minReplica int = 3
 @maxValue(30)
 param maxReplica int = 30
 
+// Container App Variables
 var containerAppSubnetName = 'infrastructure-subnet'
-var containerAppName = 'frontend'
+var storeFrontend = 'frontend'
+var orderingAppName = 'ordering'
+var basketAppName = 'basket'
+var catalogAppName = 'catalog'
 var shared_config = [
   {
     name: 'APPINSIGHTS_CONNECTION_STRING'
@@ -105,16 +109,21 @@ var shared_config = [
   }
 ]
 
+// Service Bus Variables
 var queueName = 'orders'
 
+// Key Vault secret variables
 var acrPasswordSecretName = 'AcrPasswordSecret'
 var redisConnectionStringSecretName = 'RedisConnectionString'
 
+// Role definition Ids for managed identity role assignments
 var roleDefinitionIds = {
   keyvault: '4633458b-17de-408a-b874-0445c86b69e6'                  // Key Vault Secrets User
   servicebus: '090c5cfd-751d-490a-894a-3ce6f1109419'                // Azure Service Bus Data Owner
 }
 
+// Environment specific private link suffixes
+// reference: https://docs.microsoft.com/en-us/azure/private-link/private-endpoint-dns
 var privateLinkContainerRegistyDnsNames = {
   AzureCloud: 'privatelink.azurecr.io'
 }
@@ -131,6 +140,7 @@ var privateLinkRedisDnsNames = {
   AzureChinaCloud: 'privatelink.redis.cache.chinacloudapi.cn'
 }
 
+// VNET
 resource virtualNetwork 'Microsoft.Network/virtualNetworks@2022-07-01' = {
   name: virtualNetworkName
   location: location
@@ -142,6 +152,7 @@ resource virtualNetwork 'Microsoft.Network/virtualNetworks@2022-07-01' = {
       ]
     }
     subnets: [
+      // [0] Container App Environment VNet Integration Subnet
       {
         name: containerAppSubnetName
         properties: {
@@ -151,6 +162,7 @@ resource virtualNetwork 'Microsoft.Network/virtualNetworks@2022-07-01' = {
           privateLinkServiceNetworkPolicies: 'Enabled'
         }
       }
+      // [1] Container Registry integration subnet
       {
         name: 'containerregistry-subnet'
         properties: {
@@ -159,6 +171,7 @@ resource virtualNetwork 'Microsoft.Network/virtualNetworks@2022-07-01' = {
           privateLinkServiceNetworkPolicies: 'Enabled'
         }
       }
+      // [2] Service Bus private endpoint subnet
       {
         name: 'servicebus-subnet'
         properties: {
@@ -167,6 +180,7 @@ resource virtualNetwork 'Microsoft.Network/virtualNetworks@2022-07-01' = {
           privateLinkServiceNetworkPolicies: 'Enabled'
         }
       }
+      // [3] Azure Cache for Redis private endpoint subnet
       {
         name: 'redis-subnet'
         properties: {
@@ -175,6 +189,7 @@ resource virtualNetwork 'Microsoft.Network/virtualNetworks@2022-07-01' = {
           privateLinkServiceNetworkPolicies: 'Enabled'
         }
       }
+      // [4] Azure SQL private endpoint subnet
       {
         name: 'sql-server-subnet'
         properties: {
@@ -187,6 +202,7 @@ resource virtualNetwork 'Microsoft.Network/virtualNetworks@2022-07-01' = {
   }
 }
 
+// AZURE MONITOR - Log Analytics
 resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2022-10-01' = {
   name: logAnalyticsWorkspaceName
   location: location
@@ -198,6 +214,7 @@ resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2022-10-01' = {
   }
 }
 
+// Application Insights
 resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
   name: applicationInsightsName
   location: location
@@ -209,6 +226,7 @@ resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
   }
 }
 
+// Key Vault
 resource keyVault 'Microsoft.KeyVault/vaults@2022-07-01' = {
   name: keyVaultName
   location: location
@@ -235,6 +253,7 @@ resource keyVault 'Microsoft.KeyVault/vaults@2022-07-01' = {
   }
 }
 
+// Container Registry
 resource containerRegistry 'Microsoft.ContainerRegistry/registries@2023-01-01-preview' = {
   name: containerRegistryName
   location: location
@@ -251,6 +270,90 @@ resource containerRegistry 'Microsoft.ContainerRegistry/registries@2023-01-01-pr
   }
 }
 
+resource containerRegistryPasswordSecret 'Microsoft.KeyVault/vaults/secrets@2022-07-01' = {
+  name: acrPasswordSecretName
+  parent: keyVault
+  properties: {
+    value: containerRegistry.listCredentials().passwords[0].value
+  }
+}
+
+// Service Bus
+resource serviceBus 'Microsoft.ServiceBus/namespaces@2022-10-01-preview' = {
+  name: serviceBusName
+  location: location
+  tags: tags
+  sku: {
+    name: 'Premium'
+    capacity: 1
+    tier: 'Premium'
+  }
+  properties: {
+    zoneRedundant: true
+  }
+
+  resource ordersQueue 'queues' = {
+    name: queueName
+  }
+}
+
+// Azure Cache for Redis
+resource redisCache 'Microsoft.Cache/redis@2022-06-01' = {
+  name: redisCacheName
+  location: location
+  tags: tags
+  zones: [
+    '1'
+    '2'
+    '3'
+  ]
+  properties: {
+    sku: {
+      capacity: 1
+      family: 'P'
+      name: 'Premium'
+    }
+    minimumTlsVersion: '1.2'
+    publicNetworkAccess: 'Disabled'
+    replicasPerMaster: 2
+    replicasPerPrimary: 2
+  }
+}
+
+resource redisSecret 'Microsoft.KeyVault/vaults/secrets@2022-07-01' = {
+  name: redisConnectionStringSecretName
+  parent: keyVault
+  properties: {
+    value: '${redisCache.properties.hostName}:6380,password=${redisCache.listKeys().primaryKey},ssl=True,abortConnect=False'
+  }
+}
+
+// SQL Server
+resource sqlServer 'Microsoft.Sql/servers@2021-11-01' = {
+  name: sqlServerName
+  location: location
+  tags: tags
+  properties: {
+    administratorLogin: sqlAdmin
+    administratorLoginPassword: sqlAdminPassword
+    publicNetworkAccess: 'Disabled'
+  }
+
+  resource sqlDatabase 'databases' = {
+    name: sqlDatabaseName
+    location: location
+    tags: tags
+    sku: {
+      name: 'P1'
+      tier: 'Premium'
+    }
+    properties: {
+      zoneRedundant: true
+    }
+  }
+}
+
+// Private DNS Zones
 resource privateAcrDnsZone 'Microsoft.Network/privateDnsZones@2020-06-01' = {
   name: privateLinkContainerRegistyDnsNames[environment().name]
   location: 'global'
@@ -268,6 +371,60 @@ resource privateAcrDnsZone 'Microsoft.Network/privateDnsZones@2020-06-01' = {
   }
 }
 
+resource privateServiceBusDnsZone 'Microsoft.Network/privateDnsZones@2020-06-01' = {
+  name: privateLinkServiceBusDnsNames[environment().name]
+  location: 'global'
+  tags: tags
+  resource privateSitesDnsZoneVNetLink 'virtualNetworkLinks' = {
+    name: '${last(split(virtualNetwork.id, '/'))}-vnetlink'
+    location: 'global'
+    properties: {
+      registrationEnabled: false
+      virtualNetwork: {
+        id: virtualNetwork.id
+      }
+    }
+  }
+}
+
+resource privateRedisDnsZone 'Microsoft.Network/privateDnsZones@2020-06-01' = {
+  name: privateLinkRedisDnsNames[environment().name]
+  location: 'global'
+  tags: tags
+  resource privateSitesDnsZoneVNetLink 'virtualNetworkLinks' = {
+    name: '${last(split(virtualNetwork.id, '/'))}-vnetlink'
+    location: 'global'
+    properties: {
+      registrationEnabled: false
+      virtualNetwork: {
+        id: virtualNetwork.id
+      }
+    }
+  }
+}
+
+resource privateSqlDnsZone 'Microsoft.Network/privateDnsZones@2020-06-01' = {
+  name: 'privatelink${environment().suffixes.sqlServerHostname}'
+  location: 'global'
+  tags: tags
+  resource privateSitesDnsZoneVNetLink 'virtualNetworkLinks' = {
+    name: '${last(split(virtualNetwork.id, '/'))}-vnetlink'
+    location: 'global'
+    properties: {
+      registrationEnabled: false
+      virtualNetwork: {
+        id: virtualNetwork.id
+      }
+    }
+  }
+}
+
+// PRIVATE ENDPOINTS
+
+//  Each Private endpoint (PEP) is comprised of: 
+//    1. Private endpoint resource, 
+//    2. Private link service connection to the target resource, 
+//    3. Private DNS zone group, linked to a VNet-linked private DNS Zone
 resource containerRegistryPep 'Microsoft.Network/privateEndpoints@2022-07-01' = {
   name: '${containerRegistry.name}-pep'
   location: location
@@ -299,48 +456,6 @@ resource containerRegistryPep 'Microsoft.Network/privateEndpoints@2022-07-01' = 
           }
         }
       ]
-    }
-  }
-}
-
-resource containerRegistryPasswordSecret 'Microsoft.KeyVault/vaults/secrets@2022-07-01' = {
-  name: acrPasswordSecretName
-  parent: keyVault
-  properties: {
-    value: containerRegistry.listCredentials().passwords[0].value
-  }
-}
-
-resource serviceBus 'Microsoft.ServiceBus/namespaces@2022-10-01-preview' = {
-  name: serviceBusName
-  location: location
-  tags: tags
-  sku: {
-    name: 'Premium'
-    capacity: 1
-    tier: 'Premium'
-  }
-  properties: {
-    zoneRedundant: true
-  }
-
-  resource ordersQueue 'queues' = {
-    name: queueName
-  }
-}
-
-resource privateServiceBusDnsZone 'Microsoft.Network/privateDnsZones@2020-06-01' = {
-  name: privateLinkServiceBusDnsNames[environment().name]
-  location: 'global'
-  tags: tags
-  resource privateSitesDnsZoneVNetLink 'virtualNetworkLinks' = {
-    name: '${last(split(virtualNetwork.id, '/'))}-vnetlink'
-    location: 'global'
-    properties: {
-      registrationEnabled: false
-      virtualNetwork: {
-        id: virtualNetwork.id
-      }
     }
   }
 }
@@ -380,52 +495,6 @@ resource serviceBusPepResource 'Microsoft.Network/privateEndpoints@2022-07-01' =
   }
 }
 
-resource redisCache 'Microsoft.Cache/redis@2022-06-01' = {
-  name: redisCacheName
-  location: location
-  tags: tags
-  zones: [
-    '1'
-    '2'
-    '3'
-  ]
-  properties: {
-    sku: {
-      capacity: 1
-      family: 'P'
-      name: 'Premium'
-    }
-    minimumTlsVersion: '1.2'
-    publicNetworkAccess: 'Disabled'
-    replicasPerMaster: 2
-    replicasPerPrimary: 2
-  }
-}
-
-resource redisSecret 'Microsoft.KeyVault/vaults/secrets@2022-07-01' = {
-  name: redisConnectionStringSecretName
-  parent: keyVault
-  properties: {
-    value: '${redisCache.properties.hostName}:6380,password=${redisCache.listKeys().primaryKey},ssl=True,abortConnect=False'
-  }
-}
-
-resource privateRedisDnsZone 'Microsoft.Network/privateDnsZones@2020-06-01' = {
-  name: privateLinkRedisDnsNames[environment().name]
-  location: 'global'
-  tags: tags
-  resource privateSitesDnsZoneVNetLink 'virtualNetworkLinks' = {
-    name: '${last(split(virtualNetwork.id, '/'))}-vnetlink'
-    location: 'global'
-    properties: {
-      registrationEnabled: false
-      virtualNetwork: {
-        id: virtualNetwork.id
-      }
-    }
-  }
-}
-
 resource redisPep 'Microsoft.Network/privateEndpoints@2022-07-01' = {
   name: '${redisCache.name}-pep'
   location: location
@@ -457,46 +526,6 @@ resource redisPep 'Microsoft.Network/privateEndpoints@2022-07-01' = {
           }
         }
       ]
-    }
-  }
-}
-
-resource sqlServer 'Microsoft.Sql/servers@2021-11-01' = {
-  name: sqlServerName
-  location: location
-  tags: tags
-  properties: {
-    administratorLogin: sqlAdmin
-    administratorLoginPassword: sqlAdminPassword
-    publicNetworkAccess: 'Disabled'
-  }
-
-  resource sqlDatabase 'databases' = {
-    name: sqlDatabaseName
-    location: location
-    tags: tags
-    sku: {
-      name: 'P1'
-      tier: 'Premium'
-    }
-    properties: {
-      zoneRedundant: true
-    }
-  }
-}
-
-resource privateSqlDnsZone 'Microsoft.Network/privateDnsZones@2020-06-01' = {
-  name: 'privatelink${environment().suffixes.sqlServerHostname}'
-  location: 'global'
-  tags: tags
-  resource privateSitesDnsZoneVNetLink 'virtualNetworkLinks' = {
-    name: '${last(split(virtualNetwork.id, '/'))}-vnetlink'
-    location: 'global'
-    properties: {
-      registrationEnabled: false
-      virtualNetwork: {
-        id: virtualNetwork.id
-      }
     }
   }
 }
@@ -536,6 +565,7 @@ resource sqlPepResource 'Microsoft.Network/privateEndpoints@2022-07-01' = {
   }
 }
 
+// Container Apps Environment
 resource env 'Microsoft.App/managedEnvironments@2022-10-01' = {
   name: containerAppEnvName
   location: location
@@ -558,8 +588,10 @@ resource env 'Microsoft.App/managedEnvironments@2022-10-01' = {
   }
 }
 
+
+// Container Apps
 resource frontEndContainerApp 'Microsoft.App/containerApps@2022-03-01' = {
-  name: containerAppName
+  name: storeFrontend
   location: location
   tags: tags
   properties: {
@@ -595,7 +627,7 @@ resource frontEndContainerApp 'Microsoft.App/containerApps@2022-03-01' = {
    template: {
     containers: [
       {
-        name: containerAppName
+        name: storeFrontend
         image: containerImage
         env: shared_config
         resources: {
@@ -625,6 +657,205 @@ resource frontEndContainerApp 'Microsoft.App/containerApps@2022-03-01' = {
   }
 }
 
+resource orderingApi 'Microsoft.App/containerApps@2022-10-01' = {
+  name: orderingAppName
+  location: location
+  tags: tags
+  properties: {
+    managedEnvironmentId: env.id
+    configuration: {
+      activeRevisionsMode: 'Multiple'
+      ingress: {
+        external: false
+        transport: 'auto'
+        targetPort: 80
+        allowInsecure: false
+        traffic: [
+          {
+            latestRevision: true
+            weight: 100
+          }
+        ]
+      }
+      secrets: [
+        {
+          name: 'container-registry-password'
+          value: containerRegistry.listCredentials().passwords[0].value
+        }
+      ]
+      registries: [
+        {
+          server: containerRegistry.properties.loginServer
+          username: containerRegistry.listCredentials().username
+          passwordSecretRef: 'container-registry-password'
+        }
+      ]
+    }
+    template: {
+      containers: [
+        {
+          name: orderingAppName
+          image: containerImage
+          resources: {
+            cpu: json(cpuCore)
+            memory: '${memorySize}Gi'
+          }
+        }
+      ]
+      scale: {
+        minReplicas: minReplica
+        maxReplicas: maxReplica
+        rules: [
+          {
+            name: 'http-rule'
+            http: {
+              metadata: {
+                concurrentRequests: '100'
+              }
+            }
+          }
+        ]
+      }
+     } 
+    }
+  identity: {
+    type: 'SystemAssigned'
+  }
+}
+
+resource catalogApi 'Microsoft.App/containerApps@2022-10-01' = {
+  name: catalogAppName
+  location: location
+  tags: tags
+  properties: {
+    managedEnvironmentId: env.id
+    configuration: {
+      activeRevisionsMode: 'Multiple'
+      ingress: {
+        external: false
+        transport: 'auto'
+        targetPort: 80
+        allowInsecure: false
+        traffic: [
+          {
+            latestRevision: true
+            weight: 100
+          }
+        ]
+      }
+      secrets: [
+        {
+          name: 'container-registry-password'
+          value: containerRegistry.listCredentials().passwords[0].value
+        }
+      ]
+      registries: [
+        {
+          server: containerRegistry.properties.loginServer
+          username: containerRegistry.listCredentials().username
+          passwordSecretRef: 'container-registry-password'
+        }
+      ]
+    }
+    template: {
+      containers: [
+        {
+          name: catalogAppName
+          image: containerImage
+          resources: {
+            cpu: json(cpuCore)
+            memory: '${memorySize}Gi'
+          }
+        }
+      ]
+      scale: {
+        minReplicas: minReplica
+        maxReplicas: maxReplica
+        rules: [
+          {
+            name: 'http-rule'
+            http: {
+              metadata: {
+                concurrentRequests: '100'
+              }
+            }
+          }
+        ]
+      }
+     } 
+    }
+  identity: {
+    type: 'SystemAssigned'
+  }
+}
+
+resource basketApi 'Microsoft.App/containerApps@2022-10-01' = {
+  name: basketAppName
+  location: location
+  tags: tags
+  properties: {
+    managedEnvironmentId: env.id
+    configuration: {
+      activeRevisionsMode: 'Multiple'
+      ingress: {
+        external: false
+        transport: 'auto'
+        targetPort: 80
+        allowInsecure: false
+        traffic: [
+          {
+            latestRevision: true
+            weight: 100
+          }
+        ]
+      }
+      secrets: [
+        {
+          name: 'container-registry-password'
+          value: containerRegistry.listCredentials().passwords[0].value
+        }
+      ]
+      registries: [
+        {
+          server: containerRegistry.properties.loginServer
+          username: containerRegistry.listCredentials().username
+          passwordSecretRef: 'container-registry-password'
+        }
+      ]
+    }
+    template: {
+      containers: [
+        {
+          name: basketAppName
+          image: containerImage
+          resources: {
+            cpu: json(cpuCore)
+            memory: '${memorySize}Gi'
+          }
+        }
+      ]
+      scale: {
+        minReplicas: minReplica
+        maxReplicas: maxReplica
+        rules: [
+          {
+            name: 'http-rule'
+            http: {
+              metadata: {
+                concurrentRequests: '100'
+              }
+            }
+          }
+        ]
+      }
+     } 
+    }
+  identity: {
+    type: 'SystemAssigned'
+  }
+}
+
+// ROLE ASSIGNMENTS
 resource keyVaultReaderRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(keyVault.id, frontEndContainerApp.id, roleDefinitionIds.keyvault)
   properties: {
