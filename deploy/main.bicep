@@ -247,63 +247,26 @@ module serviceBus 'modules/service-bus.bicep' = {
 }
 
 // Azure Cache for Redis
-resource redisCache 'Microsoft.Cache/redis@2022-06-01' = {
-  name: redisCacheName
-  location: location
-  tags: tags
-  zones: [
-    '1'
-    '2'
-    '3'
-  ]
-  properties: {
-    sku: {
-      capacity: 1
-      family: 'P'
-      name: 'Premium'
-    }
-    minimumTlsVersion: '1.2'
-    publicNetworkAccess: 'Disabled'
-    replicasPerMaster: 2
-    replicasPerPrimary: 2
+module redisCache 'modules/redis-cache.bicep' = {
+  name: 'redisCache'
+  params: {
+    location: location
+    redisCacheName: redisCacheName
+    tags: tags
   }
 }
 
 // SQL Server
-resource sqlServer 'Microsoft.Sql/servers@2021-11-01' = {
-  name: sqlServerName
-  location: location
-  tags: tags
-  properties: {
-    administratorLogin: sqlAdmin
-    administratorLoginPassword: sqlAdminPassword
-    publicNetworkAccess: 'Disabled'
-  }
-
-  resource orderDatabase 'databases' = {
-    name: ordersDatabaseName
+module sqlServer 'modules/sql-server.bicep' = {
+  name: 'sqlserver'
+  params: {
+    catalogDatabaseName: catalogDatabaseName
     location: location
+    ordersDatabaseName: ordersDatabaseName 
+    sqlAdmin: sqlAdmin
+    sqlAdminPassword: sqlAdminPassword
+    sqlServerName: sqlServerName
     tags: tags
-    sku: {
-      name: 'P1'
-      tier: 'Premium'
-    }
-    properties: {
-      zoneRedundant: true
-    }
-  }
-
-  resource catalogDatabase 'databases' = {
-    name: catalogDatabaseName
-    location: location
-    tags: tags
-    sku: {
-      name: 'P1'
-      tier: 'Premium'
-    }
-    properties: {
-      zoneRedundant: true
-    }
   }
 }
 
@@ -461,7 +424,7 @@ resource redisPep 'Microsoft.Network/privateEndpoints@2022-07-01' = {
       {
         name: 'peplink'
         properties: {
-          privateLinkServiceId: redisCache.id
+          privateLinkServiceId: redisCache.outputs.id
           groupIds: [
             'redisCache'
           ]
@@ -496,7 +459,7 @@ resource sqlPepResource 'Microsoft.Network/privateEndpoints@2022-07-01' = {
       {
         name: 'peplink'
         properties: {
-          privateLinkServiceId: sqlServer.id
+          privateLinkServiceId: sqlServer.outputs.id
           groupIds: [
             'sqlServer'
           ]
