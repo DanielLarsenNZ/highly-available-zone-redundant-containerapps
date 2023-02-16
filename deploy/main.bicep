@@ -113,7 +113,6 @@ var shared_config = [
 var queueName = 'orders'
 
 // Key Vault secret variables
-var acrPasswordSecretName = 'AcrPasswordSecret'
 var redisConnectionStringSecretName = 'RedisConnectionString'
 
 // Environment specific private link suffixes
@@ -248,27 +247,12 @@ resource keyVault 'Microsoft.KeyVault/vaults@2022-07-01' = {
 }
 
 // Container Registry
-resource containerRegistry 'Microsoft.ContainerRegistry/registries@2023-01-01-preview' = {
-  name: containerRegistryName
-  location: location
-  tags: tags
-  sku: {
-    name: 'Premium'
-  }
-  properties: {
-    zoneRedundancy: 'Enabled'
-    adminUserEnabled: true
-  }
-  identity: {
-    type: 'SystemAssigned'
-  }
-}
-
-resource containerRegistryPasswordSecret 'Microsoft.KeyVault/vaults/secrets@2022-07-01' = {
-  name: acrPasswordSecretName
-  parent: keyVault
-  properties: {
-    value: containerRegistry.listCredentials().passwords[0].value
+module containerRegistry 'modules/container-registry.bicep' = {
+  name: 'acr'
+  params: {
+    containerRegistryName: containerRegistryName
+    location: location
+    tags: tags
   }
 }
 
@@ -431,7 +415,7 @@ resource containerRegistryPep 'Microsoft.Network/privateEndpoints@2022-07-01' = 
       {
         name: 'peplink'
         properties: {
-          privateLinkServiceId: containerRegistry.id
+          privateLinkServiceId: containerRegistry.outputs.id
           groupIds: [
             'registry'
           ]
@@ -590,7 +574,7 @@ module frontendApp 'modules/container-app.bicep' = {
     containerAppEnvId: env.id
     containerAppName: storeFrontend 
     containerImage: containerImage
-    containerRegistryName: containerRegistry.name
+    containerRegistryName: containerRegistry.outputs.containerRegistryName
     location: location
     tags: tags
     environmentVariables: shared_config
@@ -608,7 +592,7 @@ module orderingApi 'modules/container-app.bicep' = {
     containerAppEnvId: env.id 
     containerAppName: orderingAppName
     containerImage: containerImage
-    containerRegistryName: containerRegistry.name
+    containerRegistryName: containerRegistry.outputs.containerRegistryName
     location: location
     tags: tags
     cpuCore: cpuCore
@@ -624,7 +608,7 @@ module catalogApi 'modules/container-app.bicep' = {
     containerAppEnvId: env.id
     containerAppName: catalogAppName
     containerImage: containerImage
-    containerRegistryName: containerRegistry.name
+    containerRegistryName: containerRegistry.outputs.containerRegistryName
     location: location
     tags: tags
     cpuCore: cpuCore
@@ -640,7 +624,7 @@ module basketApi 'modules/container-app.bicep' = {
     containerAppEnvId: env.id
     containerAppName: basketAppName
     containerImage: containerImage
-    containerRegistryName: containerRegistry.name
+    containerRegistryName: containerRegistry.outputs.containerRegistryName
     location: location
     tags: tags
     cpuCore: cpuCore
