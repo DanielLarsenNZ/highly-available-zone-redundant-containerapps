@@ -104,7 +104,7 @@ var shared_config = [
   }
   {
     name: 'AZURE_SERVICE_BUS_FQ_NAMESPACE'
-    value: replace(replace(serviceBus.properties.serviceBusEndpoint, 'https://', ''), ':433/', '')
+    value: replace(replace(serviceBus.outputs.endpoint, 'https://', ''), ':433/', '')
   }
   {
     name: 'AZURE_SERVICE_BUS_QUEUE_NAME'
@@ -236,21 +236,13 @@ module containerRegistry 'modules/container-registry.bicep' = {
 }
 
 // Service Bus
-resource serviceBus 'Microsoft.ServiceBus/namespaces@2022-10-01-preview' = {
-  name: serviceBusName
-  location: location
-  tags: tags
-  sku: {
-    name: 'Premium'
-    capacity: 1
-    tier: 'Premium'
-  }
-  properties: {
-    zoneRedundant: true
-  }
-
-  resource ordersQueue 'queues' = {
-    name: queueName
+module serviceBus 'modules/service-bus.bicep' = {
+  name: 'service-bus'
+  params: {
+    location: location
+    queueName: queueName
+    serviceBusName: serviceBusName
+    tags: tags
   }
 }
 
@@ -434,7 +426,7 @@ resource serviceBusPepResource 'Microsoft.Network/privateEndpoints@2022-07-01' =
       {
         name: 'peplink'
         properties: {
-          privateLinkServiceId: serviceBus.id
+          privateLinkServiceId: serviceBus.outputs.id
           groupIds: [
             'namespace'
           ]
