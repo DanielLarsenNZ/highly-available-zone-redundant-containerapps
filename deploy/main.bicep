@@ -25,6 +25,9 @@ param keyVaultName string = 'kv-${applicationName}'
 @description('The name of the Service Bus namespace that will be deployed')
 param serviceBusName string = 'sb-${applicationName}'
 
+@description('The name of the Azure Cache for Redis instance to deploy')
+param redisCacheName string = 'cache-${applicationName}'
+
 @description('The docker container image to deploy')
 param containerImage string = 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
 
@@ -92,6 +95,7 @@ var shared_config = [
 var queueName = 'orders'
 
 var acrPasswordSecretName = 'AcrPasswordSecret'
+var redisConnectionStringSecretName = 'RedisConnectionString'
 
 var roleDefinitionIds = {
   keyvault: '4633458b-17de-408a-b874-0445c86b69e6'                  // Key Vault Secrets User
@@ -106,6 +110,12 @@ var privateLinkServiceBusDnsNames = {
   AzureCloud: 'privatelink.servicebus.windows.net'
   AzureUSGovernment: 'privatelink.servicebus.usgovcloudapi.net'
   AzureChinaCloud: 'privatelink.servicebus.chinacloudapi.cn'
+}
+
+var privateLinkRedisDnsNames = {
+  AzureCloud: 'privatelink.redis.cache.windows.net'
+  AzureUSGovernment: 'privatelink.redis.cache.usgovcloudapi.net'
+  AzureChinaCloud: 'privatelink.redis.cache.chinacloudapi.cn'
 }
 
 resource virtualNetwork 'Microsoft.Network/virtualNetworks@2022-07-01' = {
@@ -140,6 +150,14 @@ resource virtualNetwork 'Microsoft.Network/virtualNetworks@2022-07-01' = {
         name: 'servicebus-subnet'
         properties: {
           addressPrefix: '10.0.3.0/24'
+          privateEndpointNetworkPolicies: 'Disabled'
+          privateLinkServiceNetworkPolicies: 'Enabled'
+        }
+      }
+      {
+        name: 'redis-subnet'
+        properties: {
+          addressPrefix: '10.0.4.0/24'
           privateEndpointNetworkPolicies: 'Disabled'
           privateLinkServiceNetworkPolicies: 'Enabled'
         }
@@ -334,6 +352,87 @@ resource serviceBusPepResource 'Microsoft.Network/privateEndpoints@2022-07-01' =
           name: 'config'
           properties: {
             privateDnsZoneId: privateServiceBusDnsZone.id
+          }
+        }
+      ]
+    }
+  }
+}
+
+resource redisCache 'Microsoft.Cache/redis@2022-06-01' = {
+  name: redisCacheName
+  location: location
+  tags: tags
+  zones: [
+    '1'
+    '2'
+    '3'
+  ]
+  properties: {
+    sku: {
+      capacity: 1
+      family: 'P'
+      name: 'Premium'
+    }
+    minimumTlsVersion: '1.2'
+    publicNetworkAccess: 'Disabled'
+    replicasPerMaster: 2
+    replicasPerPrimary: 2
+  }
+}
+
+resource redisSecret 'Microsoft.KeyVault/vaults/secrets@2022-07-01' = {
+  name: redisConnectionStringSecretName
+  parent: keyVault
+  properties: {
+    value: '${redisCache.properties.hostName}:6380,password=${redisCache.listKeys().primaryKey},ssl=True,abortConnect=False'
+  }
+}
+
+resource privateRedisDnsZone 'Microsoft.Network/privateDnsZones@2020-06-01' = {
+  name: privateLinkRedisDnsNames[environment().name]
+  location: 'global'
+  tags: tags
+  resource privateSitesDnsZoneVNetLink 'virtualNetworkLinks' = {
+    name: '${last(split(virtualNetwork.id, '/'))}-vnetlink'
+    location: 'global'
+    properties: {
+      registrationEnabled: false
+      virtualNetwork: {
+        id: virtualNetwork.id
+      }
+    }
+  }
+}
+
+resource redisPep 'Microsoft.Network/privateEndpoints@2022-07-01' = {
+  name: '${redisCache.name}-pep'
+  location: location
+  tags: tags
+  properties: {
+    subnet: {
+      id: virtualNetwork.properties.subnets[3].id
+    }
+    privateLinkServiceConnections: [
+      {
+        name: 'peplink'
+        properties: {
+          privateLinkServiceId: redisCache.id
+          groupIds: [
+            'redisCache'
+          ]
+        }
+      }
+    ]
+  }
+  resource privateDnsZoneGroups 'privateDnsZoneGroups' = {
+    name: 'dnszonegroup'
+    properties: {
+      privateDnsZoneConfigs: [
+        {
+          name: 'config'
+          properties: {
+            privateDnsZoneId: privateRedisDnsZone.id
           }
         }
       ]
