@@ -28,6 +28,19 @@ param serviceBusName string = 'sb-${applicationName}'
 @description('The name of the Azure Cache for Redis instance to deploy')
 param redisCacheName string = 'cache-${applicationName}'
 
+@description('The name of the SQL Server that will be deployed')
+param sqlServerName string = 'sql-${applicationName}'
+
+@description('The name of the SQL database to create')
+param sqlDatabaseName string = 'sql-db-${applicationName}'
+
+@description('Optional. SQL admin username. Defaults to \'\${applicationName}-admin\'')
+param sqlAdmin string = '${applicationName}-admin'
+
+@description('Optional. A password for the Azure SQL server admin user. Defaults to a new GUID.')
+@secure()
+param sqlAdminPassword string = newGuid()
+
 @description('The docker container image to deploy')
 param containerImage string = 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
 
@@ -158,6 +171,14 @@ resource virtualNetwork 'Microsoft.Network/virtualNetworks@2022-07-01' = {
         name: 'redis-subnet'
         properties: {
           addressPrefix: '10.0.4.0/24'
+          privateEndpointNetworkPolicies: 'Disabled'
+          privateLinkServiceNetworkPolicies: 'Enabled'
+        }
+      }
+      {
+        name: 'sql-server-subnet'
+        properties: {
+          addressPrefix: '10.0.5.0/24'
           privateEndpointNetworkPolicies: 'Disabled'
           privateLinkServiceNetworkPolicies: 'Enabled'
         }
@@ -433,6 +454,81 @@ resource redisPep 'Microsoft.Network/privateEndpoints@2022-07-01' = {
           name: 'config'
           properties: {
             privateDnsZoneId: privateRedisDnsZone.id
+          }
+        }
+      ]
+    }
+  }
+}
+
+resource sqlServer 'Microsoft.Sql/servers@2021-11-01' = {
+  name: sqlServerName
+  location: location
+  tags: tags
+  properties: {
+    administratorLogin: sqlAdmin
+    administratorLoginPassword: sqlAdminPassword
+    publicNetworkAccess: 'Disabled'
+  }
+
+  resource sqlDatabase 'databases' = {
+    name: sqlDatabaseName
+    location: location
+    tags: tags
+    sku: {
+      name: 'P1'
+      tier: 'Premium'
+    }
+    properties: {
+      zoneRedundant: true
+    }
+  }
+}
+
+resource privateSqlDnsZone 'Microsoft.Network/privateDnsZones@2020-06-01' = {
+  name: 'privatelink${environment().suffixes.sqlServerHostname}'
+  location: 'global'
+  tags: tags
+  resource privateSitesDnsZoneVNetLink 'virtualNetworkLinks' = {
+    name: '${last(split(virtualNetwork.id, '/'))}-vnetlink'
+    location: 'global'
+    properties: {
+      registrationEnabled: false
+      virtualNetwork: {
+        id: virtualNetwork.id
+      }
+    }
+  }
+}
+
+resource sqlPepResource 'Microsoft.Network/privateEndpoints@2022-07-01' = {
+  name: '${sqlServer.name}-pep'
+  location: location
+  tags: tags
+  properties: {
+    subnet: {
+      id: virtualNetwork.properties.subnets[4].id
+    }
+    privateLinkServiceConnections: [
+      {
+        name: 'peplink'
+        properties: {
+          privateLinkServiceId: sqlServer.id
+          groupIds: [
+            'sqlServer'
+          ]
+        }
+      }
+    ]
+  }
+  resource privateDnsZoneGroups 'privateDnsZoneGroups' = {
+    name: 'dnszonegroup'
+    properties: {
+      privateDnsZoneConfigs: [
+        {
+          name: 'config'
+          properties: {
+            privateDnsZoneId: privateSqlDnsZone.id
           }
         }
       ]
