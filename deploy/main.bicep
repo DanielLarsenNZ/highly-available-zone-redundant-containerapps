@@ -428,13 +428,8 @@ module appInsights 'modules/app-insights.bicep' = {
 }
 
 // Key Vault
-module keyVault 'modules/key-vault.bicep' = {
-  name: 'kv'
-  params: {
-    keyVaultName: keyVaultName 
-    location: location
-    tags: tags
-  }
+resource keyVault 'Microsoft.KeyVault/vaults@2022-07-01' existing = {
+  name: keyVaultName
 }
 
 // Container Registry
@@ -460,6 +455,7 @@ module redisCache 'modules/redis-cache.bicep' = {
     location: location
     redisCacheName: redisCacheName
     tags: tags
+    keyVaultName: keyVault.name
   }
 }
 
@@ -474,6 +470,7 @@ module sqlServer 'modules/sql-server.bicep' = {
     sqlAdminPassword: sqlAdminPassword
     sqlServerName: sqlServerName
     tags: tags
+    keyVaultName: keyVault.name
   }
 }
 
@@ -506,6 +503,7 @@ module frontendApp 'modules/container-app.bicep' = {
     memorySize: memorySize
     minReplica: minReplica
     maxReplica: maxReplica
+    keyVaultName: keyVault.name
   }
 }
 
@@ -522,6 +520,7 @@ module orderingApi 'modules/container-app.bicep' = {
     memorySize: memorySize
     minReplica: minReplica
     maxReplica: maxReplica
+    keyVaultName: keyVault.name
   }
 }
 
@@ -538,6 +537,7 @@ module catalogApi 'modules/container-app.bicep' = {
     memorySize: memorySize
     minReplica: minReplica
     maxReplica: maxReplica
+    keyVaultName: keyVault.name
   }
 }
 
@@ -554,5 +554,6 @@ module basketApi 'modules/container-app.bicep' = {
     memorySize: memorySize
     minReplica: minReplica
     maxReplica: maxReplica
+    keyVaultName: keyVault.name
   }
 }

@@ -60,8 +60,15 @@ param minReplica int = 3
 @maxValue(30)
 param maxReplica int = 30
 
+@description('The name of the Key Vault that this Container App will pull secrets from')
+param keyVaultName string
+
 resource containerRegistry 'Microsoft.ContainerRegistry/registries@2023-01-01-preview' existing = {
   name: containerRegistryName
+}
+
+resource keyVault 'Microsoft.KeyVault/vaults@2022-07-01' existing = {
+  name: keyVaultName
 }
 
 resource containerApp 'Microsoft.App/containerApps@2022-10-01' = {
@@ -129,6 +136,25 @@ resource containerApp 'Microsoft.App/containerApps@2022-10-01' = {
   }
   identity: {
     type: 'SystemAssigned'
+  }
+}
+
+resource accessPolicies 'Microsoft.KeyVault/vaults/accessPolicies@2022-07-01' = {
+  name: 'add'
+  parent: keyVault
+  properties: {
+    accessPolicies: [
+      {
+        objectId: containerApp.identity.principalId
+        tenantId: containerApp.identity.tenantId
+        permissions: {
+          secrets: [
+            'get'
+            'list'
+          ]
+        }
+      }
+    ] 
   }
 }
 

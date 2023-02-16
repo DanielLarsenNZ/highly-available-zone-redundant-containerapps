@@ -1,5 +1,8 @@
-@description('The name of the Key Vault that will be deployed')
-param keyVaultName string
+@description('The name of the application')
+param applicationName string = uniqueString(resourceGroup().id)
+
+@description('The name of the key vault that will be deployed')
+param keyVaultName string = 'kv-${applicationName}'
 
 @description('The location to deploy the Key Vault to')
 param location string
