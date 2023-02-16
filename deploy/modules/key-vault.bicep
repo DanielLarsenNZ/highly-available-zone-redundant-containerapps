@@ -21,3 +21,6 @@ resource keyVault 'Microsoft.KeyVault/vaults@2022-07-01' = {
     accessPolicies: []
   }
 }
+
+output id string = keyVault.id
+output name string = keyVault.name

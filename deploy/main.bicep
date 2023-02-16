@@ -32,7 +32,10 @@ param redisCacheName string = 'cache-${applicationName}'
 param sqlServerName string = 'sql-${applicationName}'
 
 @description('The name of the SQL database to create')
-param sqlDatabaseName string = 'sql-db-${applicationName}'
+param ordersDatabaseName string = '${applicationName}-orders'
+
+@description('The name of the Catalog Database to create in SQL Server')
+param catalogDatabaseName string = '${applicationName}-catalog'
 
 @description('Optional. SQL admin username. Defaults to \'\${applicationName}-admin\'')
 param sqlAdmin string = '${applicationName}-admin'
@@ -289,8 +292,21 @@ resource sqlServer 'Microsoft.Sql/servers@2021-11-01' = {
     publicNetworkAccess: 'Disabled'
   }
 
-  resource sqlDatabase 'databases' = {
-    name: sqlDatabaseName
+  resource orderDatabase 'databases' = {
+    name: ordersDatabaseName
+    location: location
+    tags: tags
+    sku: {
+      name: 'P1'
+      tier: 'Premium'
+    }
+    properties: {
+      zoneRedundant: true
+    }
+  }
+
+  resource catalogDatabase 'databases' = {
+    name: catalogDatabaseName
     location: location
     tags: tags
     sku: {
@@ -537,7 +553,6 @@ resource env 'Microsoft.App/managedEnvironments@2022-10-01' = {
     zoneRedundant: true
   }
 }
-
 
 // Container Apps
 module frontendApp 'modules/container-app.bicep' = {
