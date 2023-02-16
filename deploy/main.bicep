@@ -520,25 +520,15 @@ resource sqlPepResource 'Microsoft.Network/privateEndpoints@2022-07-01' = {
 }
 
 // Container Apps Environment
-resource env 'Microsoft.App/managedEnvironments@2022-10-01' = {
-  name: containerAppEnvName
-  location: location
-  tags: tags
-  sku: {
-    name: 'Consumption'
-  }
-  properties: {
-    appLogsConfiguration: {
-      destination: 'log-analytics'
-      logAnalyticsConfiguration: {
-        customerId: logAnalytics.outputs.customerId
-        sharedKey: logAnalytics.outputs.sharedKey
-      }
-    }
-    vnetConfiguration: {
-      infrastructureSubnetId: virtualNetwork.properties.subnets[0].id
-    }
-    zoneRedundant: true
+module env 'modules/container-app-env.bicep' = {
+  name: 'env'
+  params: {
+    containerAppEnvName: containerAppEnvName
+    infraSubnetId: virtualNetwork.properties.subnets[0].id
+    lawCustomerId: logAnalytics.outputs.customerId
+    lawSharedKey: logAnalytics.outputs.sharedKey
+    location: location
+    tags: tags
   }
 }
 
@@ -546,7 +536,7 @@ resource env 'Microsoft.App/managedEnvironments@2022-10-01' = {
 module frontendApp 'modules/container-app.bicep' = {
   name: 'front-end'
   params: {
-    containerAppEnvId: env.id
+    containerAppEnvId: env.outputs.id
     containerAppName: storeFrontend 
     containerImage: containerImage
     containerRegistryName: containerRegistry.outputs.containerRegistryName
@@ -564,7 +554,7 @@ module frontendApp 'modules/container-app.bicep' = {
 module orderingApi 'modules/container-app.bicep' = {
   name: 'ordering'
   params: {
-    containerAppEnvId: env.id 
+    containerAppEnvId: env.outputs.id
     containerAppName: orderingAppName
     containerImage: containerImage
     containerRegistryName: containerRegistry.outputs.containerRegistryName
@@ -580,7 +570,7 @@ module orderingApi 'modules/container-app.bicep' = {
 module catalogApi 'modules/container-app.bicep' = {
   name: 'catalog'
   params: {
-    containerAppEnvId: env.id
+    containerAppEnvId: env.outputs.id
     containerAppName: catalogAppName
     containerImage: containerImage
     containerRegistryName: containerRegistry.outputs.containerRegistryName
@@ -596,7 +586,7 @@ module catalogApi 'modules/container-app.bicep' = {
 module basketApi 'modules/container-app.bicep' = {
   name: 'basket'
   params: {
-    containerAppEnvId: env.id
+    containerAppEnvId: env.outputs.id
     containerAppName: basketAppName
     containerImage: containerImage
     containerRegistryName: containerRegistry.outputs.containerRegistryName
