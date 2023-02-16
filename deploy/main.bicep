@@ -22,6 +22,9 @@ param virtualNetworkName string = 'vnet-${applicationName}'
 @description('The name of the key vault that will be deployed')
 param keyVaultName string = 'kv-${applicationName}'
 
+@description('The name of the Service Bus namespace that will be deployed')
+param serviceBusName string = 'sb-${applicationName}'
+
 @description('The docker container image to deploy')
 param containerImage string = 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
 
@@ -76,16 +79,33 @@ var shared_config = [
     name: 'APPINSIGHTS_INSTRUMENTATIONKEY'
     value: appInsights.properties.InstrumentationKey
   }
+  {
+    name: 'AZURE_SERVICE_BUS_FQ_NAMESPACE'
+    value: replace(replace(serviceBus.properties.serviceBusEndpoint, 'https://', ''), ':433/', '')
+  }
+  {
+    name: 'AZURE_SERVICE_BUS_QUEUE_NAME'
+    value: queueName
+  }
 ]
+
+var queueName = 'orders'
 
 var acrPasswordSecretName = 'AcrPasswordSecret'
 
 var roleDefinitionIds = {
   keyvault: '4633458b-17de-408a-b874-0445c86b69e6'                  // Key Vault Secrets User
+  servicebus: '090c5cfd-751d-490a-894a-3ce6f1109419'                // Azure Service Bus Data Owner
 }
 
 var privateLinkContainerRegistyDnsNames = {
   AzureCloud: 'privatelink.azurecr.io'
+}
+
+var privateLinkServiceBusDnsNames = {
+  AzureCloud: 'privatelink.servicebus.windows.net'
+  AzureUSGovernment: 'privatelink.servicebus.usgovcloudapi.net'
+  AzureChinaCloud: 'privatelink.servicebus.chinacloudapi.cn'
 }
 
 resource virtualNetwork 'Microsoft.Network/virtualNetworks@2022-07-01' = {
@@ -112,6 +132,14 @@ resource virtualNetwork 'Microsoft.Network/virtualNetworks@2022-07-01' = {
         name: 'containerregistry-subnet'
         properties: {
           addressPrefix: '10.0.2.0/24'
+          privateEndpointNetworkPolicies: 'Disabled'
+          privateLinkServiceNetworkPolicies: 'Enabled'
+        }
+      }
+      {
+        name: 'servicebus-subnet'
+        properties: {
+          addressPrefix: '10.0.3.0/24'
           privateEndpointNetworkPolicies: 'Disabled'
           privateLinkServiceNetworkPolicies: 'Enabled'
         }
@@ -244,6 +272,75 @@ resource containerRegistryPasswordSecret 'Microsoft.KeyVault/vaults/secrets@2022
   }
 }
 
+resource serviceBus 'Microsoft.ServiceBus/namespaces@2022-10-01-preview' = {
+  name: serviceBusName
+  location: location
+  tags: tags
+  sku: {
+    name: 'Premium'
+    capacity: 1
+    tier: 'Premium'
+  }
+  properties: {
+    zoneRedundant: true
+  }
+
+  resource ordersQueue 'queues' = {
+    name: queueName
+  }
+}
+
+resource privateServiceBusDnsZone 'Microsoft.Network/privateDnsZones@2020-06-01' = {
+  name: privateLinkServiceBusDnsNames[environment().name]
+  location: 'global'
+  tags: tags
+  resource privateSitesDnsZoneVNetLink 'virtualNetworkLinks' = {
+    name: '${last(split(virtualNetwork.id, '/'))}-vnetlink'
+    location: 'global'
+    properties: {
+      registrationEnabled: false
+      virtualNetwork: {
+        id: virtualNetwork.id
+      }
+    }
+  }
+}
+
+resource serviceBusPepResource 'Microsoft.Network/privateEndpoints@2022-07-01' = {
+  name: '${serviceBus.name}-pep'
+  location: location
+  tags: tags
+  properties: {
+    subnet: {
+      id: virtualNetwork.properties.subnets[2].id
+    }
+    privateLinkServiceConnections: [
+      {
+        name: 'peplink'
+        properties: {
+          privateLinkServiceId: serviceBus.id
+          groupIds: [
+            'namespace'
+          ]
+        }
+      }
+    ]
+  }
+  resource privateDnsZoneGroups 'privateDnsZoneGroups' = {
+    name: 'dnszonegroup'
+    properties: {
+      privateDnsZoneConfigs: [
+        {
+          name: 'config'
+          properties: {
+            privateDnsZoneId: privateServiceBusDnsZone.id
+          }
+        }
+      ]
+    }
+  }
+}
+
 resource env 'Microsoft.App/managedEnvironments@2022-10-01' = {
   name: containerAppEnvName
   location: location
@@ -338,6 +435,15 @@ resource keyVaultReaderRole 'Microsoft.Authorization/roleAssignments@2022-04-01'
   properties: {
     principalId: frontEndContainerApp.identity.principalId
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roleDefinitionIds.keyvault)
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource serviceBusDataOwnerRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(serviceBus.id, frontEndContainerApp.id, roleDefinitionIds.servicebus)
+  properties: {
+    principalId: frontEndContainerApp.identity.principalId
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roleDefinitionIds.servicebus)
     principalType: 'ServicePrincipal'
   }
 }
