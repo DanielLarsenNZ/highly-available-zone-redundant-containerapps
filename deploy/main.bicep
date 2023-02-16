@@ -196,14 +196,12 @@ resource virtualNetwork 'Microsoft.Network/virtualNetworks@2022-07-01' = {
 }
 
 // AZURE MONITOR - Log Analytics
-resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2022-10-01' = {
-  name: logAnalyticsWorkspaceName
-  location: location
-  tags: tags
-  properties: {
-    sku: {
-      name: 'PerGB2018'
-    }
+module logAnalytics 'modules/log-analytics-workspace.bicep' = {
+  name: 'loganalytics'
+  params: {
+    location: location
+    logAnalyticsWorkspaceName: logAnalyticsWorkspaceName
+    tags: tags 
   }
 }
 
@@ -215,7 +213,7 @@ resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
   kind: 'web'
   properties: {
     Application_Type: 'web'
-    WorkspaceResourceId: logAnalytics.id
+    WorkspaceResourceId: logAnalytics.outputs.id
   }
 }
 
@@ -543,8 +541,8 @@ resource env 'Microsoft.App/managedEnvironments@2022-10-01' = {
     appLogsConfiguration: {
       destination: 'log-analytics'
       logAnalyticsConfiguration: {
-        customerId: logAnalytics.properties.customerId
-        sharedKey: logAnalytics.listKeys().primarySharedKey
+        customerId: logAnalytics.outputs.customerId
+        sharedKey: logAnalytics.outputs.sharedKey
       }
     }
     vnetConfiguration: {
