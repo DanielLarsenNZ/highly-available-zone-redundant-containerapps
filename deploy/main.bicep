@@ -195,81 +195,6 @@ resource virtualNetwork 'Microsoft.Network/virtualNetworks@2022-07-01' = {
   }
 }
 
-// AZURE MONITOR - Log Analytics
-module logAnalytics 'modules/log-analytics-workspace.bicep' = {
-  name: 'loganalytics'
-  params: {
-    location: location
-    logAnalyticsWorkspaceName: logAnalyticsWorkspaceName
-    tags: tags 
-  }
-}
-
-// Application Insights
-module appInsights 'modules/app-insights.bicep' = {
-  name: 'appins'
-  params: {
-    applicationInsightsName: applicationInsightsName
-    location: location
-    logAnalyticsId: logAnalytics.outputs.id
-  }
-}
-
-// Key Vault
-module keyVault 'modules/key-vault.bicep' = {
-  name: 'kv'
-  params: {
-    keyVaultName: keyVaultName 
-    location: location
-    tags: tags
-  }
-}
-
-// Container Registry
-module containerRegistry 'modules/container-registry.bicep' = {
-  name: 'acr'
-  params: {
-    containerRegistryName: containerRegistryName
-    location: location
-    tags: tags
-  }
-}
-
-// Service Bus
-module serviceBus 'modules/service-bus.bicep' = {
-  name: 'service-bus'
-  params: {
-    location: location
-    queueName: queueName
-    serviceBusName: serviceBusName
-    tags: tags
-  }
-}
-
-// Azure Cache for Redis
-module redisCache 'modules/redis-cache.bicep' = {
-  name: 'redisCache'
-  params: {
-    location: location
-    redisCacheName: redisCacheName
-    tags: tags
-  }
-}
-
-// SQL Server
-module sqlServer 'modules/sql-server.bicep' = {
-  name: 'sqlserver'
-  params: {
-    catalogDatabaseName: catalogDatabaseName
-    location: location
-    ordersDatabaseName: ordersDatabaseName 
-    sqlAdmin: sqlAdmin
-    sqlAdminPassword: sqlAdminPassword
-    sqlServerName: sqlServerName
-    tags: tags
-  }
-}
-
 // Private DNS Zones
 resource privateAcrDnsZone 'Microsoft.Network/privateDnsZones@2020-06-01' = {
   name: privateLinkContainerRegistyDnsNames[environment().name]
@@ -354,7 +279,7 @@ resource containerRegistryPep 'Microsoft.Network/privateEndpoints@2022-07-01' = 
       {
         name: 'peplink'
         properties: {
-          privateLinkServiceId: containerRegistry.outputs.id
+          privateLinkServiceId: containerRegistry.id
           groupIds: [
             'registry'
           ]
@@ -482,6 +407,76 @@ resource sqlPepResource 'Microsoft.Network/privateEndpoints@2022-07-01' = {
   }
 }
 
+// AZURE MONITOR - Log Analytics
+module logAnalytics 'modules/log-analytics-workspace.bicep' = {
+  name: 'loganalytics'
+  params: {
+    location: location
+    logAnalyticsWorkspaceName: logAnalyticsWorkspaceName
+    tags: tags 
+  }
+}
+
+// Application Insights
+module appInsights 'modules/app-insights.bicep' = {
+  name: 'appins'
+  params: {
+    applicationInsightsName: applicationInsightsName
+    location: location
+    logAnalyticsId: logAnalytics.outputs.id
+  }
+}
+
+// Key Vault
+module keyVault 'modules/key-vault.bicep' = {
+  name: 'kv'
+  params: {
+    keyVaultName: keyVaultName 
+    location: location
+    tags: tags
+  }
+}
+
+// Container Registry
+resource containerRegistry 'Microsoft.ContainerRegistry/registries@2022-12-01' existing = {
+  name: containerRegistryName
+}
+
+// Service Bus
+module serviceBus 'modules/service-bus.bicep' = {
+  name: 'service-bus'
+  params: {
+    location: location
+    queueName: queueName
+    serviceBusName: serviceBusName
+    tags: tags
+  }
+}
+
+// Azure Cache for Redis
+module redisCache 'modules/redis-cache.bicep' = {
+  name: 'redisCache'
+  params: {
+    location: location
+    redisCacheName: redisCacheName
+    tags: tags
+  }
+}
+
+// SQL Server
+module sqlServer 'modules/sql-server.bicep' = {
+  name: 'sqlserver'
+  params: {
+    catalogDatabaseName: catalogDatabaseName
+    location: location
+    ordersDatabaseName: ordersDatabaseName 
+    sqlAdmin: sqlAdmin
+    sqlAdminPassword: sqlAdminPassword
+    sqlServerName: sqlServerName
+    tags: tags
+  }
+}
+
 // Container Apps Environment
 module env 'modules/container-app-env.bicep' = {
   name: 'env'
@@ -502,7 +497,7 @@ module frontendApp 'modules/container-app.bicep' = {
     containerAppEnvId: env.outputs.id
     containerAppName: storeFrontend 
     containerImage: containerImage
-    containerRegistryName: containerRegistry.outputs.containerRegistryName
+    containerRegistryName: containerRegistry.name
     location: location
     tags: tags
     environmentVariables: shared_config
@@ -520,7 +515,7 @@ module orderingApi 'modules/container-app.bicep' = {
     containerAppEnvId: env.outputs.id
     containerAppName: orderingAppName
     containerImage: containerImage
-    containerRegistryName: containerRegistry.outputs.containerRegistryName
+    containerRegistryName: containerRegistry.name
     location: location
     tags: tags
     cpuCore: cpuCore
@@ -536,7 +531,7 @@ module catalogApi 'modules/container-app.bicep' = {
     containerAppEnvId: env.outputs.id
     containerAppName: catalogAppName
     containerImage: containerImage
-    containerRegistryName: containerRegistry.outputs.containerRegistryName
+    containerRegistryName: containerRegistry.name
     location: location
     tags: tags
     cpuCore: cpuCore
@@ -552,7 +547,7 @@ module basketApi 'modules/container-app.bicep' = {
     containerAppEnvId: env.outputs.id
     containerAppName: basketAppName
     containerImage: containerImage
-    containerRegistryName: containerRegistry.outputs.containerRegistryName
+    containerRegistryName: containerRegistry.name
     location: location
     tags: tags
     cpuCore: cpuCore

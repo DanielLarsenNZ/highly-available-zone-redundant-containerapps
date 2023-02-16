@@ -1,5 +1,8 @@
 @description('The name for this container registry')
-param containerRegistryName string
+param containerRegistryName string = 'acr${applicationName}'
+
+@description('The name of the application')
+param applicationName string = uniqueString(resourceGroup().id)
 
 @description('The location to deploy this container registry to')
 param location string
