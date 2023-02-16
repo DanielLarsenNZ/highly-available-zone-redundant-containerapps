@@ -112,9 +112,6 @@ var shared_config = [
 // Service Bus Variables
 var queueName = 'orders'
 
-// Key Vault secret variables
-var redisConnectionStringSecretName = 'RedisConnectionString'
-
 // Environment specific private link suffixes
 // reference: https://docs.microsoft.com/en-us/azure/private-link/private-endpoint-dns
 var privateLinkContainerRegistyDnsNames = {
@@ -220,29 +217,12 @@ resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
 }
 
 // Key Vault
-resource keyVault 'Microsoft.KeyVault/vaults@2022-07-01' = {
-  name: keyVaultName
-  location: location
-  tags: tags
-  properties: {
-    sku: {
-      family: 'A'
-      name: 'standard'
-    }
-    tenantId: tenant().tenantId
-    enabledForTemplateDeployment: true
-    accessPolicies: [
-      {
-        objectId: frontendApp.outputs.principalId
-        tenantId: frontendApp.outputs.tenantId
-        permissions: {
-          secrets: [
-            'get'
-            'list'
-          ]
-        }
-      }
-    ]
+module keyVault 'modules/key-vault.bicep' = {
+  name: 'kv'
+  params: {
+    keyVaultName: keyVaultName 
+    location: location
+    tags: tags
   }
 }
 
@@ -295,14 +275,6 @@ resource redisCache 'Microsoft.Cache/redis@2022-06-01' = {
     publicNetworkAccess: 'Disabled'
     replicasPerMaster: 2
     replicasPerPrimary: 2
-  }
-}
-
-resource redisSecret 'Microsoft.KeyVault/vaults/secrets@2022-07-01' = {
-  name: redisConnectionStringSecretName
-  parent: keyVault
-  properties: {
-    value: '${redisCache.properties.hostName}:6380,password=${redisCache.listKeys().primaryKey},ssl=True,abortConnect=False'
   }
 }
 
