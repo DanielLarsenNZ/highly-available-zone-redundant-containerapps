@@ -55,10 +55,10 @@ param cpuCore string = '0.5'
 ])
 param memorySize string = '1'
 
-@description('The minimum number of replicas that will be deployed')
-@minValue(0)
+@description('The minimum number of replicas that will be deployed. Must be at least 3 for ZR')
+@minValue(3)
 @maxValue(30)
-param minReplica int = 1
+param minReplica int = 3
 
 @description('The maximum number of replicas that will be deployed')
 @minValue(1)
@@ -84,6 +84,10 @@ var roleDefinitionIds = {
   keyvault: '4633458b-17de-408a-b874-0445c86b69e6'                  // Key Vault Secrets User
 }
 
+var privateLinkContainerRegistyDnsNames = {
+  AzureCloud: 'privatelink.azurecr.io'
+}
+
 resource virtualNetwork 'Microsoft.Network/virtualNetworks@2022-07-01' = {
   name: virtualNetworkName
   location: location
@@ -100,6 +104,14 @@ resource virtualNetwork 'Microsoft.Network/virtualNetworks@2022-07-01' = {
         properties: {
           addressPrefix: '10.0.0.0/23'
           delegations: []
+          privateEndpointNetworkPolicies: 'Disabled'
+          privateLinkServiceNetworkPolicies: 'Enabled'
+        }
+      }
+      {
+        name: 'containerregistry-subnet'
+        properties: {
+          addressPrefix: '10.0.2.0/24'
           privateEndpointNetworkPolicies: 'Disabled'
           privateLinkServiceNetworkPolicies: 'Enabled'
         }
@@ -169,6 +181,58 @@ resource containerRegistry 'Microsoft.ContainerRegistry/registries@2023-01-01-pr
   }
   identity: {
     type: 'SystemAssigned'
+  }
+}
+
+resource privateAcrDnsZone 'Microsoft.Network/privateDnsZones@2020-06-01' = {
+  name: privateLinkContainerRegistyDnsNames[environment().name]
+  location: 'global'
+  tags: tags
+
+  resource privateAcrDnsZoneVnetLink 'virtualNetworkLinks' = {
+    name: '${last(split(virtualNetwork.id, '/'))}-vnetlink'
+    location: 'global'
+    properties: {
+      registrationEnabled: false
+      virtualNetwork: {
+        id: virtualNetwork.id
+      }
+    }
+  }
+}
+
+resource containerRegistryPep 'Microsoft.Network/privateEndpoints@2022-07-01' = {
+  name: '${containerRegistry.name}-pep'
+  location: location
+  tags: tags
+  properties: {
+    subnet: {
+      id: virtualNetwork.properties.subnets[1].id
+    }
+    privateLinkServiceConnections: [
+      {
+        name: 'peplink'
+        properties: {
+          privateLinkServiceId: containerRegistry.id
+          groupIds: [
+            'registry'
+          ]
+        }
+      }
+    ]
+  }
+  resource privateDnsZoneGroup 'privateDnsZoneGroups' = {
+    name: 'dnszonegroup'
+    properties: {
+      privateDnsZoneConfigs: [
+        {
+          name: 'config'
+          properties: {
+            privateDnsZoneId: privateAcrDnsZone.id
+          }
+        }
+      ]
+    }
   }
 }
 
