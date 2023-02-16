@@ -96,11 +96,11 @@ var catalogAppName = 'catalog'
 var shared_config = [
   {
     name: 'APPINSIGHTS_CONNECTION_STRING'
-    value: appInsights.properties.ConnectionString
+    value: appInsights.outputs.connectionString
   }
   {
     name: 'APPINSIGHTS_INSTRUMENTATIONKEY'
-    value: appInsights.properties.InstrumentationKey
+    value: appInsights.outputs.instrumentationKey
   }
   {
     name: 'AZURE_SERVICE_BUS_FQ_NAMESPACE'
@@ -206,14 +206,12 @@ module logAnalytics 'modules/log-analytics-workspace.bicep' = {
 }
 
 // Application Insights
-resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
-  name: applicationInsightsName
-  location: location
-  tags: tags
-  kind: 'web'
-  properties: {
-    Application_Type: 'web'
-    WorkspaceResourceId: logAnalytics.outputs.id
+module appInsights 'modules/app-insights.bicep' = {
+  name: 'appins'
+  params: {
+    applicationInsightsName: applicationInsightsName
+    location: location
+    logAnalyticsId: logAnalytics.outputs.id
   }
 }
 
