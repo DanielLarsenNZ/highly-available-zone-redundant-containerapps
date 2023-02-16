@@ -116,12 +116,6 @@ var queueName = 'orders'
 var acrPasswordSecretName = 'AcrPasswordSecret'
 var redisConnectionStringSecretName = 'RedisConnectionString'
 
-// Role definition Ids for managed identity role assignments
-var roleDefinitionIds = {
-  keyvault: '4633458b-17de-408a-b874-0445c86b69e6'                  // Key Vault Secrets User
-  servicebus: '090c5cfd-751d-490a-894a-3ce6f1109419'                // Azure Service Bus Data Owner
-}
-
 // Environment specific private link suffixes
 // reference: https://docs.microsoft.com/en-us/azure/private-link/private-endpoint-dns
 var privateLinkContainerRegistyDnsNames = {
@@ -240,8 +234,8 @@ resource keyVault 'Microsoft.KeyVault/vaults@2022-07-01' = {
     enabledForTemplateDeployment: true
     accessPolicies: [
       {
-        objectId: frontEndContainerApp.identity.principalId
-        tenantId: frontEndContainerApp.identity.tenantId
+        objectId: frontendApp.outputs.principalId
+        tenantId: frontendApp.outputs.tenantId
         permissions: {
           secrets: [
             'get'
@@ -590,286 +584,68 @@ resource env 'Microsoft.App/managedEnvironments@2022-10-01' = {
 
 
 // Container Apps
-resource frontEndContainerApp 'Microsoft.App/containerApps@2022-03-01' = {
-  name: storeFrontend
-  location: location
-  tags: tags
-  properties: {
-   managedEnvironmentId: env.id
-   configuration: {
-    activeRevisionsMode: 'Multiple'
-    ingress: {
-      external: true
-      transport: 'auto'
-      targetPort: 80
-      allowInsecure: false
-      traffic: [
-        {
-          latestRevision: true
-          weight: 100
-        }
-      ]
-    }
-    secrets: [
-      {
-        name: 'container-registry-password'
-        value: containerRegistry.listCredentials().passwords[0].value
-      }
-    ]
-    registries: [
-      {
-        server: containerRegistry.properties.loginServer
-        username: containerRegistry.listCredentials().username
-        passwordSecretRef: 'container-registry-password'
-      }
-    ]
-   }
-   template: {
-    containers: [
-      {
-        name: storeFrontend
-        image: containerImage
-        env: shared_config
-        resources: {
-          cpu: json(cpuCore)
-          memory: '${memorySize}Gi'
-        }
-      }
-    ]
-    scale: {
-      minReplicas: minReplica
-      maxReplicas: maxReplica
-      rules: [
-        {
-          name: 'http-rule'
-          http: {
-            metadata: {
-              concurrentRequests: '100'
-            }
-          }
-        }
-      ]
-    }
-   } 
-  }
-  identity: {
-    type: 'SystemAssigned'
+module frontendApp 'modules/container-app.bicep' = {
+  name: 'front-end'
+  params: {
+    containerAppEnvId: env.id
+    containerAppName: storeFrontend 
+    containerImage: containerImage
+    containerRegistryName: containerRegistry.name
+    location: location
+    tags: tags
+    environmentVariables: shared_config
+    isExternal: true
+    cpuCore: cpuCore
+    memorySize: memorySize
+    minReplica: minReplica
+    maxReplica: maxReplica
   }
 }
 
-resource orderingApi 'Microsoft.App/containerApps@2022-10-01' = {
-  name: orderingAppName
-  location: location
-  tags: tags
-  properties: {
-    managedEnvironmentId: env.id
-    configuration: {
-      activeRevisionsMode: 'Multiple'
-      ingress: {
-        external: false
-        transport: 'auto'
-        targetPort: 80
-        allowInsecure: false
-        traffic: [
-          {
-            latestRevision: true
-            weight: 100
-          }
-        ]
-      }
-      secrets: [
-        {
-          name: 'container-registry-password'
-          value: containerRegistry.listCredentials().passwords[0].value
-        }
-      ]
-      registries: [
-        {
-          server: containerRegistry.properties.loginServer
-          username: containerRegistry.listCredentials().username
-          passwordSecretRef: 'container-registry-password'
-        }
-      ]
-    }
-    template: {
-      containers: [
-        {
-          name: orderingAppName
-          image: containerImage
-          resources: {
-            cpu: json(cpuCore)
-            memory: '${memorySize}Gi'
-          }
-        }
-      ]
-      scale: {
-        minReplicas: minReplica
-        maxReplicas: maxReplica
-        rules: [
-          {
-            name: 'http-rule'
-            http: {
-              metadata: {
-                concurrentRequests: '100'
-              }
-            }
-          }
-        ]
-      }
-     } 
-    }
-  identity: {
-    type: 'SystemAssigned'
+module orderingApi 'modules/container-app.bicep' = {
+  name: 'ordering'
+  params: {
+    containerAppEnvId: env.id 
+    containerAppName: orderingAppName
+    containerImage: containerImage
+    containerRegistryName: containerRegistry.name
+    location: location
+    tags: tags
+    cpuCore: cpuCore
+    memorySize: memorySize
+    minReplica: minReplica
+    maxReplica: maxReplica
   }
 }
 
-resource catalogApi 'Microsoft.App/containerApps@2022-10-01' = {
-  name: catalogAppName
-  location: location
-  tags: tags
-  properties: {
-    managedEnvironmentId: env.id
-    configuration: {
-      activeRevisionsMode: 'Multiple'
-      ingress: {
-        external: false
-        transport: 'auto'
-        targetPort: 80
-        allowInsecure: false
-        traffic: [
-          {
-            latestRevision: true
-            weight: 100
-          }
-        ]
-      }
-      secrets: [
-        {
-          name: 'container-registry-password'
-          value: containerRegistry.listCredentials().passwords[0].value
-        }
-      ]
-      registries: [
-        {
-          server: containerRegistry.properties.loginServer
-          username: containerRegistry.listCredentials().username
-          passwordSecretRef: 'container-registry-password'
-        }
-      ]
-    }
-    template: {
-      containers: [
-        {
-          name: catalogAppName
-          image: containerImage
-          resources: {
-            cpu: json(cpuCore)
-            memory: '${memorySize}Gi'
-          }
-        }
-      ]
-      scale: {
-        minReplicas: minReplica
-        maxReplicas: maxReplica
-        rules: [
-          {
-            name: 'http-rule'
-            http: {
-              metadata: {
-                concurrentRequests: '100'
-              }
-            }
-          }
-        ]
-      }
-     } 
-    }
-  identity: {
-    type: 'SystemAssigned'
+module catalogApi 'modules/container-app.bicep' = {
+  name: 'catalog'
+  params: {
+    containerAppEnvId: env.id
+    containerAppName: catalogAppName
+    containerImage: containerImage
+    containerRegistryName: containerRegistry.name
+    location: location
+    tags: tags
+    cpuCore: cpuCore
+    memorySize: memorySize
+    minReplica: minReplica
+    maxReplica: maxReplica
   }
 }
 
-resource basketApi 'Microsoft.App/containerApps@2022-10-01' = {
-  name: basketAppName
-  location: location
-  tags: tags
-  properties: {
-    managedEnvironmentId: env.id
-    configuration: {
-      activeRevisionsMode: 'Multiple'
-      ingress: {
-        external: false
-        transport: 'auto'
-        targetPort: 80
-        allowInsecure: false
-        traffic: [
-          {
-            latestRevision: true
-            weight: 100
-          }
-        ]
-      }
-      secrets: [
-        {
-          name: 'container-registry-password'
-          value: containerRegistry.listCredentials().passwords[0].value
-        }
-      ]
-      registries: [
-        {
-          server: containerRegistry.properties.loginServer
-          username: containerRegistry.listCredentials().username
-          passwordSecretRef: 'container-registry-password'
-        }
-      ]
-    }
-    template: {
-      containers: [
-        {
-          name: basketAppName
-          image: containerImage
-          resources: {
-            cpu: json(cpuCore)
-            memory: '${memorySize}Gi'
-          }
-        }
-      ]
-      scale: {
-        minReplicas: minReplica
-        maxReplicas: maxReplica
-        rules: [
-          {
-            name: 'http-rule'
-            http: {
-              metadata: {
-                concurrentRequests: '100'
-              }
-            }
-          }
-        ]
-      }
-     } 
-    }
-  identity: {
-    type: 'SystemAssigned'
-  }
-}
-
-// ROLE ASSIGNMENTS
-resource keyVaultReaderRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(keyVault.id, frontEndContainerApp.id, roleDefinitionIds.keyvault)
-  properties: {
-    principalId: frontEndContainerApp.identity.principalId
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roleDefinitionIds.keyvault)
-    principalType: 'ServicePrincipal'
-  }
-}
-
-resource serviceBusDataOwnerRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(serviceBus.id, frontEndContainerApp.id, roleDefinitionIds.servicebus)
-  properties: {
-    principalId: frontEndContainerApp.identity.principalId
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roleDefinitionIds.servicebus)
-    principalType: 'ServicePrincipal'
+module basketApi 'modules/container-app.bicep' = {
+  name: 'basket'
+  params: {
+    containerAppEnvId: env.id
+    containerAppName: basketAppName
+    containerImage: containerImage
+    containerRegistryName: containerRegistry.name
+    location: location
+    tags: tags
+    cpuCore: cpuCore
+    memorySize: memorySize
+    minReplica: minReplica
+    maxReplica: maxReplica
   }
 }
