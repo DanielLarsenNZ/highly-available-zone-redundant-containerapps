@@ -8,6 +8,7 @@ param location string
 param lawCustomerId string
 
 @description('The Log Analytics Shared Key that this Environment will use')
+@secure()
 param lawSharedKey string
 
 @description('The Subnet Id that this Container Environment will integrate with')

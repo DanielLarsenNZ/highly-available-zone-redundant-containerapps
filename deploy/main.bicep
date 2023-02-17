@@ -93,7 +93,31 @@ var storeFrontend = 'frontend'
 var orderingAppName = 'ordering'
 var basketAppName = 'basket'
 var catalogAppName = 'catalog'
-var shared_config = [
+
+var frontend_config = [
+  {
+    name: 'APPINSIGHTS_CONNECTION_STRING'
+    value: appInsights.outputs.connectionString
+  }
+  {
+    name: 'APPINSIGHTS_INSTRUMENTATIONKEY'
+    value: appInsights.outputs.instrumentationKey
+  }
+  {
+    name: 'OrderingApi'
+    value: 'https://${orderingApi.outputs.fqdn}'
+  }
+  {
+    name: 'BasketApi'
+    value: 'https://${basketApi.outputs.fqdn}'
+  }
+  {
+    name: 'CatalogApi'
+    value: 'https://${catalogApi.outputs.fqdn}'
+  }
+]
+
+var ordering_config = [
   {
     name: 'APPINSIGHTS_CONNECTION_STRING'
     value: appInsights.outputs.connectionString
@@ -109,6 +133,56 @@ var shared_config = [
   {
     name: 'AZURE_SERVICE_BUS_QUEUE_NAME'
     value: queueName
+  }
+  {
+    name: 'SQL_SERVER_CONNECTION_STRING'
+    value: ''
+  }
+]
+
+var basket_config = [
+  {
+    name: 'APPINSIGHTS_CONNECTION_STRING'
+    value: appInsights.outputs.connectionString
+  }
+  {
+    name: 'APPINSIGHTS_INSTRUMENTATIONKEY'
+    value: appInsights.outputs.instrumentationKey
+  }
+  {
+    name: 'AZURE_SERVICE_BUS_FQ_NAMESPACE'
+    value: replace(replace(serviceBus.outputs.endpoint, 'https://', ''), ':433/', '')
+  }
+  {
+    name: 'AZURE_SERVICE_BUS_QUEUE_NAME'
+    value: queueName
+  }
+  {
+    name: 'REDIS_CONNECTION_STRING'
+    value: ''
+  }
+]
+
+var catalog_config = [
+  {
+    name: 'APPINSIGHTS_CONNECTION_STRING'
+    value: appInsights.outputs.connectionString
+  }
+  {
+    name: 'APPINSIGHTS_INSTRUMENTATIONKEY'
+    value: appInsights.outputs.instrumentationKey
+  }
+  {
+    name: 'AZURE_SERVICE_BUS_FQ_NAMESPACE'
+    value: replace(replace(serviceBus.outputs.endpoint, 'https://', ''), ':433/', '')
+  }
+  {
+    name: 'AZURE_SERVICE_BUS_QUEUE_NAME'
+    value: queueName
+  }
+  {
+    name: 'SQL_SERVER_CONNECTION_STRING'
+    value: ''
   }
 ]
 
@@ -490,7 +564,8 @@ module logAnalytics 'modules/log-analytics-workspace.bicep' = {
   params: {
     location: location
     logAnalyticsWorkspaceName: logAnalyticsWorkspaceName
-    tags: tags 
+    tags: tags
+    keyVaultName: keyVault.name 
   }
 }
 
@@ -548,32 +623,13 @@ module env 'modules/container-app-env.bicep' = {
     containerAppEnvName: containerAppEnvName
     infraSubnetId: virtualNetwork.properties.subnets[0].id
     lawCustomerId: logAnalytics.outputs.customerId
-    lawSharedKey: logAnalytics.outputs.sharedKey
+    lawSharedKey: keyVault.getSecret('LogAnalyticsSharedKey')
     location: location
     tags: tags
   }
 }
 
 // Container Apps
-module frontendApp 'modules/container-app.bicep' = {
-  name: 'front-end'
-  params: {
-    containerAppEnvId: env.outputs.id
-    containerAppName: storeFrontend 
-    containerImage: containerImage
-    containerRegistryName: containerRegistry.name
-    location: location
-    tags: tags
-    environmentVariables: shared_config
-    isExternal: true
-    cpuCore: cpuCore
-    memorySize: memorySize
-    minReplica: minReplica
-    maxReplica: maxReplica
-    keyVaultName: keyVault.name
-  }
-}
-
 module orderingApi 'modules/container-app.bicep' = {
   name: 'ordering'
   params: {
@@ -583,6 +639,7 @@ module orderingApi 'modules/container-app.bicep' = {
     containerRegistryName: containerRegistry.name
     location: location
     tags: tags
+    environmentVariables: ordering_config
     cpuCore: cpuCore
     memorySize: memorySize
     minReplica: minReplica
@@ -600,6 +657,7 @@ module catalogApi 'modules/container-app.bicep' = {
     containerRegistryName: containerRegistry.name
     location: location
     tags: tags
+    environmentVariables: catalog_config
     cpuCore: cpuCore
     memorySize: memorySize
     minReplica: minReplica
@@ -617,10 +675,35 @@ module basketApi 'modules/container-app.bicep' = {
     containerRegistryName: containerRegistry.name
     location: location
     tags: tags
+    environmentVariables: basket_config
     cpuCore: cpuCore
     memorySize: memorySize
     minReplica: minReplica
     maxReplica: maxReplica
     keyVaultName: keyVault.name
   }
+}
+
+module frontendApp 'modules/container-app.bicep' = {
+  name: 'front-end'
+  params: {
+    containerAppEnvId: env.outputs.id
+    containerAppName: storeFrontend 
+    containerImage: containerImage
+    containerRegistryName: containerRegistry.name
+    location: location
+    tags: tags
+    environmentVariables: frontend_config
+    isExternal: true
+    cpuCore: cpuCore
+    memorySize: memorySize
+    minReplica: minReplica
+    maxReplica: maxReplica
+    keyVaultName: keyVault.name
+  }
+  dependsOn: [
+    orderingApi
+    basketApi
+    catalogApi
+  ]
 }

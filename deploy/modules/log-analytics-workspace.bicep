@@ -7,6 +7,15 @@ param location string
 @description('The tags to apply to this Log Analytics workspace')
 param tags object = {}
 
+@description('The Key Vault that will be used to store secrets from this SQL Server')
+param keyVaultName string
+
+var logAnalyticsSharedKeySecretName = 'LogAnalyticsSharedKey'
+
+resource keyVault 'Microsoft.KeyVault/vaults@2022-07-01' existing = {
+  name: keyVaultName
+}
+
 resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2022-10-01' = {
   name: logAnalyticsWorkspaceName
   location: location
@@ -18,6 +27,13 @@ resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2022-10-01' = {
   }
 }
 
+resource sharedKeySecret 'Microsoft.KeyVault/vaults/secrets@2022-07-01' = {
+  name: logAnalyticsSharedKeySecretName
+  parent: keyVault
+  properties: {
+    value: logAnalytics.listKeys().primarySharedKey
+  }
+}
+
 output id string = logAnalytics.id
 output customerId string = logAnalytics.properties.customerId
-output sharedKey string = logAnalytics.listKeys().primarySharedKey
