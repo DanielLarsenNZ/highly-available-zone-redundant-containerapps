@@ -133,6 +133,23 @@ var privateLinkRedisDnsNames = {
   AzureChinaCloud: 'privatelink.redis.cache.chinacloudapi.cn'
 }
 
+var privateLinkKeyVaultDnsNames = {
+  AzureCloud: 'privatelink.vaultcore.azure.net'
+  AzureUSGovernment: 'privatelink.vaultcore.usgovcloudapi.net'
+  AzureChinaCloud: 'privatelink.vaultcore.azure.cn'
+}
+
+// EXISTING RESOURCES - Created by earlier steps in deploy file
+// Key Vault
+resource keyVault 'Microsoft.KeyVault/vaults@2022-07-01' existing = {
+  name: keyVaultName
+}
+
+// Container Registry
+resource containerRegistry 'Microsoft.ContainerRegistry/registries@2022-12-01' existing = {
+  name: containerRegistryName
+}
+
 // VNET
 resource virtualNetwork 'Microsoft.Network/virtualNetworks@2022-07-01' = {
   name: virtualNetworkName
@@ -187,6 +204,15 @@ resource virtualNetwork 'Microsoft.Network/virtualNetworks@2022-07-01' = {
         name: 'sql-server-subnet'
         properties: {
           addressPrefix: '10.0.5.0/24'
+          privateEndpointNetworkPolicies: 'Disabled'
+          privateLinkServiceNetworkPolicies: 'Enabled'
+        }
+      }
+      // [5] Azure Key Vault private endpoint subnet
+      {
+        name: 'keyvault-subnet'
+        properties: {
+          addressPrefix: '10.0.6.0/24'
           privateEndpointNetworkPolicies: 'Disabled'
           privateLinkServiceNetworkPolicies: 'Enabled'
         }
@@ -247,6 +273,22 @@ resource privateRedisDnsZone 'Microsoft.Network/privateDnsZones@2020-06-01' = {
 
 resource privateSqlDnsZone 'Microsoft.Network/privateDnsZones@2020-06-01' = {
   name: 'privatelink${environment().suffixes.sqlServerHostname}'
+  location: 'global'
+  tags: tags
+  resource privateSitesDnsZoneVNetLink 'virtualNetworkLinks' = {
+    name: '${last(split(virtualNetwork.id, '/'))}-vnetlink'
+    location: 'global'
+    properties: {
+      registrationEnabled: false
+      virtualNetwork: {
+        id: virtualNetwork.id
+      }
+    }
+  }
+}
+
+resource privateKeyVaultDnsZone 'Microsoft.Network/privateDnsZones@2020-06-01' = {
+  name: privateLinkKeyVaultDnsNames[environment().name]
   location: 'global'
   tags: tags
   resource privateSitesDnsZoneVNetLink 'virtualNetworkLinks' = {
@@ -407,6 +449,41 @@ resource sqlPepResource 'Microsoft.Network/privateEndpoints@2022-07-01' = {
   }
 }
 
+resource keyVaultPepResource 'Microsoft.Network/privateEndpoints@2022-07-01' = {
+  name: '${keyVault.name}-pep'
+  location: location
+  tags: tags
+  properties: {
+    subnet: {
+      id: virtualNetwork.properties.subnets[5].id
+    }
+    privateLinkServiceConnections: [
+      {
+        name: 'peplink'
+        properties: {
+          privateLinkServiceId: keyVault.id
+          groupIds: [
+            'vault'
+          ]
+        }
+      }
+    ]
+  }
+  resource privateDnsZoneGroup 'privateDnsZoneGroups' = {
+    name: 'dnszonegroup'
+    properties: {
+      privateDnsZoneConfigs: [
+        {
+          name: 'config'
+          properties: {
+            privateDnsZoneId: privateKeyVaultDnsZone.id
+          }
+        }
+      ]
+    }
+  }
+}
+
 // AZURE MONITOR - Log Analytics
 module logAnalytics 'modules/log-analytics-workspace.bicep' = {
   name: 'loganalytics'
@@ -425,16 +502,6 @@ module appInsights 'modules/app-insights.bicep' = {
     location: location
     logAnalyticsId: logAnalytics.outputs.id
   }
-}
-
-// Key Vault
-resource keyVault 'Microsoft.KeyVault/vaults@2022-07-01' existing = {
-  name: keyVaultName
-}
-
-// Container Registry
-resource containerRegistry 'Microsoft.ContainerRegistry/registries@2022-12-01' existing = {
-  name: containerRegistryName
 }
 
 // Service Bus
