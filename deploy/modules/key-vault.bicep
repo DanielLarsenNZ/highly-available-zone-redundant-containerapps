@@ -21,6 +21,8 @@ resource keyVault 'Microsoft.KeyVault/vaults@2022-07-01' = {
     }
     tenantId: tenant().tenantId
     enabledForTemplateDeployment: true
+    // Setting enableSoftDelete to false during development
+    enableSoftDelete: false
     accessPolicies: []
   }
 }

@@ -29,4 +29,5 @@ resource serviceBus 'Microsoft.ServiceBus/namespaces@2022-10-01-preview' = {
 }
 
 output id string = serviceBus.id
+output name string = serviceBus.name
 output endpoint string = serviceBus.properties.serviceBusEndpoint

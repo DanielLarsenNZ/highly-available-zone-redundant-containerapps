@@ -90,9 +90,6 @@ param maxReplica int = 30
 // Container App Variables
 var containerAppSubnetName = 'infrastructure-subnet'
 var storeFrontend = 'frontend'
-var orderingAppName = 'ordering'
-var basketAppName = 'basket'
-var catalogAppName = 'catalog'
 
 var frontend_config = [
   {
@@ -114,75 +111,6 @@ var frontend_config = [
   {
     name: 'CatalogApi'
     value: 'https://${catalogApi.outputs.fqdn}'
-  }
-]
-
-var ordering_config = [
-  {
-    name: 'APPINSIGHTS_CONNECTION_STRING'
-    value: appInsights.outputs.connectionString
-  }
-  {
-    name: 'APPINSIGHTS_INSTRUMENTATIONKEY'
-    value: appInsights.outputs.instrumentationKey
-  }
-  {
-    name: 'AZURE_SERVICE_BUS_FQ_NAMESPACE'
-    value: replace(replace(serviceBus.outputs.endpoint, 'https://', ''), ':433/', '')
-  }
-  {
-    name: 'AZURE_SERVICE_BUS_QUEUE_NAME'
-    value: queueName
-  }
-  {
-    name: 'SQL_SERVER_CONNECTION_STRING'
-    value: ''
-  }
-]
-
-var basket_config = [
-  {
-    name: 'APPINSIGHTS_CONNECTION_STRING'
-    value: appInsights.outputs.connectionString
-  }
-  {
-    name: 'APPINSIGHTS_INSTRUMENTATIONKEY'
-    value: appInsights.outputs.instrumentationKey
-  }
-  {
-    name: 'AZURE_SERVICE_BUS_FQ_NAMESPACE'
-    value: replace(replace(serviceBus.outputs.endpoint, 'https://', ''), ':433/', '')
-  }
-  {
-    name: 'AZURE_SERVICE_BUS_QUEUE_NAME'
-    value: queueName
-  }
-  {
-    name: 'REDIS_CONNECTION_STRING'
-    value: ''
-  }
-]
-
-var catalog_config = [
-  {
-    name: 'APPINSIGHTS_CONNECTION_STRING'
-    value: appInsights.outputs.connectionString
-  }
-  {
-    name: 'APPINSIGHTS_INSTRUMENTATIONKEY'
-    value: appInsights.outputs.instrumentationKey
-  }
-  {
-    name: 'AZURE_SERVICE_BUS_FQ_NAMESPACE'
-    value: replace(replace(serviceBus.outputs.endpoint, 'https://', ''), ':433/', '')
-  }
-  {
-    name: 'AZURE_SERVICE_BUS_QUEUE_NAME'
-    value: queueName
-  }
-  {
-    name: 'SQL_SERVER_CONNECTION_STRING'
-    value: ''
   }
 ]
 
@@ -630,58 +558,55 @@ module env 'modules/container-app-env.bicep' = {
 }
 
 // Container Apps
-module orderingApi 'modules/container-app.bicep' = {
+module orderingApi 'modules/container-apps/ordering-api.bicep' = {
   name: 'ordering'
   params: {
+    applicationInsightsName: appInsights.outputs.name
     containerAppEnvId: env.outputs.id
-    containerAppName: orderingAppName
     containerImage: containerImage
     containerRegistryName: containerRegistry.name
-    location: location
-    tags: tags
-    environmentVariables: ordering_config
-    cpuCore: cpuCore
-    memorySize: memorySize
-    minReplica: minReplica
-    maxReplica: maxReplica
     keyVaultName: keyVault.name
+    location: location
+    orderingDbSecret: keyVault.getSecret('OrdersDBConnectionString')
+    queueName: queueName
+    serviceBusName: serviceBus.outputs.name
+    tags: tags
   }
 }
 
-module catalogApi 'modules/container-app.bicep' = {
+module catalogApi 'modules/container-apps/catalog-api.bicep' = {
   name: 'catalog'
   params: {
+    applicationInsightsName: appInsights.outputs.name
+    catalogDbSecret: keyVault.getSecret('CatalogDBConnectionString')
     containerAppEnvId: env.outputs.id
-    containerAppName: catalogAppName
     containerImage: containerImage
     containerRegistryName: containerRegistry.name
-    location: location
-    tags: tags
-    environmentVariables: catalog_config
-    cpuCore: cpuCore
-    memorySize: memorySize
-    minReplica: minReplica
-    maxReplica: maxReplica
     keyVaultName: keyVault.name
+    location: location
+    queueName: queueName
+    serviceBusName: serviceBus.outputs.name
+    tags: tags
   }
 }
 
-module basketApi 'modules/container-app.bicep' = {
+module basketApi 'modules/container-apps/basket-api.bicep' = {
   name: 'basket'
   params: {
+    applicationInsightsName: appInsights.name
     containerAppEnvId: env.outputs.id
-    containerAppName: basketAppName
     containerImage: containerImage
     containerRegistryName: containerRegistry.name
-    location: location
-    tags: tags
-    environmentVariables: basket_config
-    cpuCore: cpuCore
-    memorySize: memorySize
-    minReplica: minReplica
-    maxReplica: maxReplica
     keyVaultName: keyVault.name
+    location: location
+    queueName: queueName
+    redisSecret: keyVault.getSecret('RedisConnectionString')
+    serviceBusName: serviceBus.outputs.name
+    tags: tags
   }
+  dependsOn: [
+    redisCache
+  ]
 }
 
 module frontendApp 'modules/container-app.bicep' = {
