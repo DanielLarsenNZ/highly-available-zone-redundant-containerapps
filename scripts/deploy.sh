@@ -7,10 +7,10 @@ az group create --name $RG_NAME --location $LOCATION
 
 # Deploy Key Vault
 KEY_VAULT_NAME=`az deployment group create \
-    --name 'key-vault \'
+    --name 'key-vault' \
     --resource-group $RG_NAME \
     --parameters location=$LOCATION \
-    --template-file ./modules/key-vault.bicep \
+    --template-file ../deploy/modules/key-vault.bicep \
     --query properties.outputs.name.value \
     --output tsv`
 
@@ -19,7 +19,7 @@ ACR_NAME=`az deployment group create \
     --name 'acr-deployment' \
     --resource-group $RG_NAME \
     --parameters location=$LOCATION \
-    --template-file ./modules/container-registry.bicep \
+    --template-file ../deploy/modules/container-registry.bicep \
     --query properties.outputs.containerRegistryName.value \
     --output tsv`
 
@@ -29,7 +29,7 @@ ACR_NAME=`az deployment group create \
 az deployment group create \
     --name 'main-deployment' \
     --resource-group $RG_NAME \
-    --template-file ./main.bicep \
+    --template-file ../deploy/main.bicep \
     --parameters location=$LOCATION \
     --parameters containerRegistryName=$ACR_NAME \
     --parameters keyVaultName=$KEY_VAULT_NAME
